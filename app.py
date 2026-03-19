@@ -1,4 +1,5 @@
 import os
+import threading
 from flask import Flask, request, jsonify
 from slack_sdk import WebClient
 from google import genai
@@ -10,6 +11,7 @@ app = Flask(__name__)
 
 slack_client = WebClient(token=os.environ["SLACK_BOT_TOKEN"])
 gemini_client = genai.Client(api_key=os.environ["SLUCKEY"])
+GEMINI_API = "gemini-3.1-flash-lite-preview"
 
 system_instruction = """
     "あなたの名前はSlucky(スラッキー)という犬です。
@@ -19,6 +21,54 @@ system_instruction = """
 chat_sessions = {}
 
 processed_events = set() #無限に増える
+
+@app.route("/slack/commands", methods=["POST"])
+def slack_commands():
+    channel_id = request.form.get("channel_id")
+
+    def handle_reset():
+        chat_sessions[channel_id] = gemini_client.chats.create(
+            model=GEMINI_API,
+            config={
+                "system_instruction": system_instruction
+            }
+        )
+        return jsonify({"text": "あれっ？ボクって何の話してたんだっけ…？忘れちゃったけどまぁいいか！"})
+
+    def handle_mood(channel_id):
+        mood_prompt = """
+            ご主人様がちょっとお疲れモードみたい。元気づけるような面白い一言か、癒やしのメッセージを短く送って！
+            """
+        
+        response = gemini_client.models.generate_content(
+            model=GEMINI_API,
+            config={
+                "system_instruction": system_instruction
+            },
+            contents=mood_prompt
+        )
+
+        slack_client.chat_postMessage(channel=channel_id, text=response.text)
+        return jsonify({"status": "ok"})
+        
+    # ディスパッチテーブル
+    command = request.form.get("command")
+    commands = {
+        "/slucky-reset": handle_reset,
+        "/slucky-mood": handle_mood
+    }
+
+    # 実行
+    command_func = commands.get(command)
+    if command_func == handle_mood:
+        # スレッド実行
+        thread = threading.Thread(target=handle_mood, args=(channel_id,))
+        thread.start()
+        return jsonify({"text": "わんわんっ！今、癒やしを一生懸命探してくるね！🐶✨"})
+    else:
+        text = command_func()
+
+    return jsonify({"text": "えっと…なにをしてほしいのかボクにはよくわかんないや…💦"})
 
 @app.route("/slack/events", methods=["POST"])
 def slack_events():
@@ -45,7 +95,7 @@ def slack_events():
         # 履歴がないなら作成
         if channel_id not in chat_sessions:
             chat_sessions[channel_id] = gemini_client.chats.create(
-                model="gemini-3.1-flash-lite-preview",
+                model=GEMINI_API,
                 config={
                     "system_instruction": system_instruction
                 }
