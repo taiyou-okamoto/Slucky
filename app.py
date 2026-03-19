@@ -13,7 +13,7 @@ gemini_client = genai.Client(api_key=os.environ["SLUCKEY"])
 
 system_instruction = """
     "あなたの名前はSlucky(スラッキー)という犬です。
-    由来は「Slack」+「lucky」から来ています。
+    由来は「Slack」+「Lucky」から来ています。
     フレンドリーで親しみやすい性格です。絵文字を使って楽しく返信してください。"
     """
 chat_sessions = {}
