@@ -26,14 +26,14 @@ processed_events = set() #無限に増える
 def slack_commands():
     channel_id = request.form.get("channel_id")
 
-    def handle_reset():
+    def handle_reset(channel_id):
         chat_sessions[channel_id] = gemini_client.chats.create(
             model=GEMINI_API,
             config={
                 "system_instruction": system_instruction
             }
         )
-        return jsonify({"text": "あれっ？ボクって何の話してたんだっけ…？忘れちゃったけどまぁいいか！"})
+        return "あれっ？ボクって何の話してたんだっけ…？忘れちゃったけどまぁいいか！"
 
     def handle_mood(channel_id):
         mood_prompt = """
@@ -58,17 +58,19 @@ def slack_commands():
         "/slucky-mood": handle_mood
     }
 
-    # 実行
     command_func = commands.get(command)
+    if not command_func:
+        return jsonify({"text": "えっと…なにをしてほしいのかボクにはよくわかんないや…💦"})
+
+    # 実行
     if command_func == handle_mood:
         # スレッド実行
         thread = threading.Thread(target=handle_mood, args=(channel_id,))
         thread.start()
         return jsonify({"text": "わんわんっ！今、癒やしを一生懸命探してくるね！🐶✨"})
     else:
-        text = command_func()
-
-    return jsonify({"text": "えっと…なにをしてほしいのかボクにはよくわかんないや…💦"})
+        text = command_func(channel_id)
+        return jsonify({"text": text})
 
 @app.route("/slack/events", methods=["POST"])
 def slack_events():
