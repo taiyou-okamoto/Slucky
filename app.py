@@ -5,6 +5,9 @@ from slack_sdk import WebClient
 from google import genai
 from dotenv import load_dotenv
 
+# 自作モジュール
+from calendar_helper import fetch_today_schedule
+
 load_dotenv()
 
 app = Flask(__name__)
@@ -51,12 +54,28 @@ def slack_commands():
 
         slack_client.chat_postMessage(channel=channel_id, text=response.text)
         return jsonify({"status": "ok"})
+    
+    def handle_schedule(channel_id):
+        raw_schedule = fetch_today_schedule()
+
+        schedule_prompt = f"以下の予定を、ご主人様に可愛く元気にお知らせしてあげて！\n\n{raw_schedule}"
+        response = gemini_client.models.generate_content(
+            model=GEMINI_API,
+            config={
+                "system_instruction": system_instruction
+            },
+            contents=schedule_prompt
+        )
+
+        slack_client.chat_postMessage(channel=channel_id, text=response.text)
+        return jsonify({"status": "ok"})
         
     # ディスパッチテーブル
     command = request.form.get("command")
     commands = {
         "/slucky-reset": handle_reset,
-        "/slucky-mood": handle_mood
+        "/slucky-mood": handle_mood,
+        "/slucky-schedule": handle_schedule
     }
 
     command_func = commands.get(command)
@@ -64,11 +83,15 @@ def slack_commands():
         return jsonify({"text": "えっと…なにをしてほしいのかボクにはよくわかんないや…💦"})
 
     # 実行
-    if command_func == handle_mood:
+    if command_func in [handle_mood, handle_schedule]:
         # スレッド実行
-        thread = threading.Thread(target=handle_mood, args=(channel_id,))
+        thread = threading.Thread(target=command_func, args=(channel_id,))
         thread.start()
+
+        if command_func == handle_schedule:
+            return jsonify({"text": "わんわんっ！カレンダーを見てくるね！🗓️🐾"})
         return jsonify({"text": "わんわんっ！今、癒やしを一生懸命探してくるね！🐶✨"})
+    
     else:
         text = command_func(channel_id)
         return jsonify({"text": text})
