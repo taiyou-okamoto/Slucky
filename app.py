@@ -27,6 +27,28 @@ chat_sessions = {}
 
 processed_events = set() #無限に増える
 
+def get_user_email(user_id):
+    try:
+        conn = sqlite3.connect("slucky.db")
+        cursor = conn.cursor()
+
+        cursor.execute('''
+            SELECT google_calendar_id FROM users
+            WHERE slack_user_id = ?
+        ''', (user_id,))
+
+        result = cursor.fetchone()
+        conn.close()
+
+        if result:
+            return result[0]
+        else:
+            return os.environ.get("GOOGLE_CALENDAR_ID", "primary")
+            
+    except Exception as e:
+        print(f"DB検索エラー: {e}")
+        return os.environ.get("GOOGLE_CALENDAR_ID", "primary") # エラー時もデフォルトを返す
+
 @app.route("/slack/commands", methods=["POST"])
 def slack_commands():
     channel_id = request.form.get("channel_id")
@@ -58,8 +80,8 @@ def slack_commands():
         slack_client.chat_postMessage(channel=channel_id, text=response.text)
         return jsonify({"status": "ok"})
 
-    def handle_setCalendar(user_id, email):
-        if not email or "@" not in email:
+    def handle_setCalendar(user_id, user_email):
+        if not user_email or "@" not in user_email:
             return "あれっ？💦メールアドレスの形式が変かも？ 正しいメールアドレスをもう一度送ってみて！！"
 
         try:
@@ -70,31 +92,35 @@ def slack_commands():
             cursor.execute('''
                 INSERT OR REPLACE INTO users (slack_user_id, google_calendar_id)
                 VALUES (?, ?)
-            ''', (user_id, email))
+            ''', (user_id, user_email))
 
             conn.commit()
             conn.close()
 
-            return f"わんわんっ！ ご主人様（<@{user_id}>）のカレンダーを `{email}` で覚えたよ！🗓️🐶"
+            return f"わんわんっ！ ご主人様（<@{user_id}>）のカレンダーを `{user_email}` で覚えたよ！🗓️🐶"
         
         except Exception as e:
             return f"ごめんね、データベースに書き込めなかったよ… (エラー: {e})"
 
-    def handle_schedule(channel_id):
-        raw_schedule = fetch_today_schedule()
+    def handle_schedule(channel_id, user_id):
+        with app.app_context():
+            user_email = get_user_email(user_id)
 
-        schedule_prompt = f"以下の予定を、ご主人様に可愛く元気にお知らせしてあげて！\n\n{raw_schedule}"
-        response = gemini_client.models.generate_content(
-            model=GEMINI_API,
-            config={
-                "system_instruction": system_instruction
-            },
-            contents=schedule_prompt
-        )
+            raw_schedule = fetch_today_schedule(user_email)
 
-        slack_client.chat_postMessage(channel=channel_id, text=response.text)
-        return jsonify({"status": "ok"})
-        
+            schedule_prompt = f"以下の予定を、ご主人様に可愛く元気にお知らせしてあげて！\n\n{raw_schedule}"
+            response = gemini_client.models.generate_content(
+                model=GEMINI_API,
+                config={
+                    "system_instruction": system_instruction
+                },
+                contents=schedule_prompt
+            )
+
+            slack_client.chat_postMessage(channel=channel_id, text=response.text)
+            return jsonify({"status": "ok"})
+    
+         
     # ディスパッチテーブル
     command = request.form.get("command")
     commands = {
@@ -111,7 +137,7 @@ def slack_commands():
     # 実行
     if command_func in [handle_mood, handle_schedule]:
         # スレッド実行
-        thread = threading.Thread(target=command_func, args=(channel_id,))
+        thread = threading.Thread(target=command_func, args=(channel_id, user_id,))
         thread.start()
 
         if command_func == handle_schedule:

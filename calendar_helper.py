@@ -8,12 +8,12 @@ from googleapiclient.discovery import build
 SCOPES = ['https://www.googleapis.com/auth/calendar.readonly']
 SERVICE_ACCOUNT_FILE = 'slucky-491106-c57b81d197ad.json'
 
-def fetch_today_schedule():
-    """
-    Googleカレンダーから直近10件の予定を取得し、
-    Geminiに渡しやすい文字列（プレーンテキスト）にして返す。
-    """
-    calendar_id = os.environ.get("GOOGLE_CALENDAR_ID", "primary")
+def fetch_today_schedule(target_calendar_id):
+    # """
+    # Googleカレンダーから直近10件の予定を取得し、
+    # Geminiに渡しやすい文字列（プレーンテキスト）にして返す。
+    # """
+    # calendar_id = os.environ.get("GOOGLE_CALENDAR_ID", "primary")
     
     try:
         creds = service_account.Credentials.from_service_account_file(
@@ -24,7 +24,7 @@ def fetch_today_schedule():
         now = now_utc.isoformat().replace('+00:00', 'Z')
 
         events_result = service.events().list(
-            calendarId=calendar_id,
+            calendarId=target_calendar_id,
             timeMin=now,
             maxResults=10,
             singleEvents=True,
