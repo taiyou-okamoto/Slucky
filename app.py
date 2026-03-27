@@ -1,5 +1,6 @@
 import os
 import threading
+import sqlite3
 from flask import Flask, request, jsonify
 from slack_sdk import WebClient
 from google import genai
@@ -29,6 +30,8 @@ processed_events = set() #無限に増える
 @app.route("/slack/commands", methods=["POST"])
 def slack_commands():
     channel_id = request.form.get("channel_id")
+    user_id = request.form.get("user_id")
+    user_text = request.form.get("text")
 
     def handle_reset(channel_id):
         chat_sessions[channel_id] = gemini_client.chats.create(
@@ -54,7 +57,29 @@ def slack_commands():
 
         slack_client.chat_postMessage(channel=channel_id, text=response.text)
         return jsonify({"status": "ok"})
+
+    def handle_setCalendar(user_id, email):
+        if not email or "@" not in email:
+            return "あれっ？💦メールアドレスの形式が変かも？ 正しいメールアドレスをもう一度送ってみて！！"
+
+        try:
+            conn = sqlite3.connect('slucky.db')
+            cursor = conn.cursor()
     
+            # SQLiteでuserテーブルに INSERT OR REPLACE
+            cursor.execute('''
+                INSERT OR REPLACE INTO users (slack_user_id, google_calendar_id)
+                VALUES (?, ?)
+            ''', (user_id, email))
+
+            conn.commit()
+            conn.close()
+
+            return f"わんわんっ！ ご主人様（<@{user_id}>）のカレンダーを `{email}` で覚えたよ！🗓️🐶"
+        
+        except Exception as e:
+            return f"ごめんね、データベースに書き込めなかったよ… (エラー: {e})"
+
     def handle_schedule(channel_id):
         raw_schedule = fetch_today_schedule()
 
@@ -75,7 +100,8 @@ def slack_commands():
     commands = {
         "/slucky-reset": handle_reset,
         "/slucky-mood": handle_mood,
-        "/slucky-schedule": handle_schedule
+        "/slucky-schedule": handle_schedule,
+        "/slucky-set-calendar": handle_setCalendar
     }
 
     command_func = commands.get(command)
@@ -93,7 +119,11 @@ def slack_commands():
         return jsonify({"text": "わんわんっ！今、癒やしを一生懸命探してくるね！🐶✨"})
     
     else:
-        text = command_func(channel_id)
+        if command_func == handle_setCalendar:
+            text = command_func(user_id, user_text)
+        else:
+            text = command_func(channel_id)
+
         return jsonify({"text": text})
 
 @app.route("/slack/events", methods=["POST"])
